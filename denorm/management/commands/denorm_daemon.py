@@ -1,8 +1,6 @@
-import os
 import sys
-import django
+from pid import PidFile, PidFileError
 from time import sleep
-from optparse import make_option
 
 from django.core.management.base import BaseCommand
 from django.db import transaction
@@ -23,13 +21,6 @@ def commit_manually(fn):  # replacement of transaction.commit_manually decorator
 
 class Command(BaseCommand):
     def add_arguments(self, parser):
-        parser.add_argument(
-            '-n',
-            action='store_true',
-            dest='foreground',
-            default=False,
-            help='Run in foreground',
-        ),
         parser.add_argument(
             '-i',
             action='store',
@@ -54,41 +45,25 @@ class Command(BaseCommand):
         ),
     help = "Runs a daemon that checks for dirty fields and updates them in regular intervals."
 
-    def pid_exists(self, pidfile):
-        try:
-            pid = int(open(pidfile, 'r').read())
-            os.kill(pid, 0)
-            self.stderr.write(self.style.ERROR("daemon already running as pid: %s\n" % (pid,)))
-            return True
-        except OSError as err:
-            return err.errno == os.errno.EPERM
-        except IOError as err:
-            if err.errno == 2:
-                return False
-            else:
-                raise
 
     @commit_manually
     def handle(self, **options):
-        foreground = options['foreground']
         interval = options['interval']
         pidfile = options['pidfile']
         run_once = options['run_once']
 
-        if self.pid_exists(pidfile):
-            return
-
-        if not foreground:
-            from denorm import daemon
-            daemon.daemonize(noClose=True, pidfile=pidfile)
-
-        while not run_once:
-            try:
-                denorms.flush()
-                sleep(interval)
-                transaction.commit()
-            except KeyboardInterrupt:
-                transaction.commit()
-                sys.exit()
-            if run_once:
-                break
+        try:
+            with PidFile(pidfile) as p:
+                while not run_once:
+                    try:
+                        denorms.flush()
+                        transaction.commit()
+                        sleep(interval)
+                    except KeyboardInterrupt:
+                        transaction.commit()
+                        sys.exit()
+                    if run_once:
+                        break
+        except PidFileError:
+            self.stderr.write(self.style.ERROR("Daemon is already running"))
+            return False
