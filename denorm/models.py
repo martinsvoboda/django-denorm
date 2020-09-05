@@ -12,7 +12,10 @@ class DirtyInstance(models.Model):
     when related objects change.
     """
     class Meta:
-        app_label="denorm"
+        app_label = "denorm"
+        unique_together = (
+            ('content_type', 'object_id')
+        )
 
     content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
     object_id = models.TextField(blank=True, null=True)
